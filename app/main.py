@@ -31,7 +31,7 @@ app.add_middleware(
 )
 
 # Create a root router for the /api prefix
-api_router = APIRouter(prefix="/api")
+api_router = APIRouter()
 
 # Include your existing routers under this api_router
 api_router.include_router(users.router)
