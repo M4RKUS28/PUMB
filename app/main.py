@@ -15,8 +15,6 @@ models.Base.metadata.create_all(bind=engine)
 # You can set openapi_prefix when creating the FastAPI app. This is primarily for how the API docs (e.g., /docs) are generated when your app is served behind a proxy that adds a prefix.
 app = FastAPI(title="User Management API", root_path="/api")
 
-
-
 # CORS Configuration (remains the same)
 origins = [
     "http://localhost:3000",
