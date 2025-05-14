@@ -39,7 +39,7 @@ COPY --from=builder /usr/src/app/requirements.txt .
 RUN pip install --no-cache /wheels/*
 
 # Copy project
-COPY ./app ./app
+COPY ./src ./app
 
 # If you have a .env file you want to include in the image (NOT RECOMMENDED for secrets)
 # COPY ./.env ./.env
@@ -58,4 +58,4 @@ EXPOSE 8000
 # For production, you might run uvicorn directly with more workers.
 # CMD ["python", "run_dev.py"]
 # Alternatively, for production with multiple workers:
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

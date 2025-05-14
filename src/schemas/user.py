@@ -2,16 +2,7 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator # Make sure field_validator is imported
 from typing import Optional, List
 import re
-
-# --- Define Password Policy Constants ---
-# You can place these here or import them if they are defined elsewhere (e.g., a config file)
-MIN_PASSWORD_LENGTH = 3
-REQUIRE_UPPERCASE = False
-REQUIRE_LOWERCASE = False
-REQUIRE_DIGIT = False
-REQUIRE_SPECIAL_CHAR = False
-SPECIAL_CHARACTERS_REGEX_PATTERN = r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?~`]"
-# --- End Password Policy Constants ---
+from ..config.settings import MIN_PASSWORD_LENGTH, REQUIRE_UPPERCASE, REQUIRE_LOWERCASE, REQUIRE_DIGIT, REQUIRE_SPECIAL_CHAR
 
 class UserBase(BaseModel):
     username: str
@@ -90,21 +81,4 @@ class User(UserBase): # Your existing User schema for responses
     is_admin: bool
 
     class Config:
-        from_attributes = True # Pydantic V2
-
-# Token Schemas (remain the same)
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-    user_id: int
-    username: str
-    is_admin: bool
-
-class TokenData(BaseModel):
-    username: Optional[str] = None
-    user_id: Optional[int] = None
-    is_admin: Optional[bool] = None
-
-class LoginForm(BaseModel):
-    username: str
-    password: str
+        from_attributes = True

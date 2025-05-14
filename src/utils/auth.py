@@ -5,19 +5,16 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-import os
-from dotenv import load_dotenv
 
-from . import models, schemas
-from .database import get_db
 
-load_dotenv()
+# Import the SQLAlchemy User model module correctly
+from ..models import db_user as user_model # Use a consistent alias for the SQLAlchemy model module
+# Import Pydantic schemas (only TokenData is directly used here)
+from ..schemas import token as token_schema # Alias for Pydantic token schemas
+from ..db.database import get_db
 
 # Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "a_very_secret_key_please_change_me")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "2440"))
-
+from ..config.settings import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 # Password-Hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -31,13 +28,13 @@ def verify_password(plain_password, hashed_password):
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-def authenticate_user(db: Session, username: str, password: str) -> Optional[models.User]:
-    user = db.query(models.User).filter(models.User.username == username).first()
-    if not user:
+def authenticate_user(db: Session, username: str, password: str) -> Optional[user_model.User]:
+    authenticated_db_user = db.query(user_model.User).filter(user_model.User.username == username).first()
+    if not authenticated_db_user:
         return None
-    if not verify_password(password, user.hashed_password):
+    if not verify_password(password, authenticated_db_user.hashed_password):
         return None
-    return user
+    return authenticated_db_user # Return the SQLAlchemy user model instance
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -49,7 +46,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> models.User:
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> user_model.User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -62,24 +59,24 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         is_admin: bool = payload.get("is_admin", False)
         if username is None or user_id is None:
             raise credentials_exception
-        token_data = schemas.TokenData(username=username, user_id=user_id, is_admin=is_admin)
+        # token_data = token.TokenData(username=username, user_id=user_id, is_admin=is_admin)
     except JWTError:
         raise credentials_exception
     
-    user = db.query(models.User).filter(models.User.id == token_data.user_id).first()
+    user = db.query(user_model.User).filter(user_model.User.id == user_id).first()
     if user is None:
         raise credentials_exception
     return user
 
-async def get_current_active_user(current_user: models.User = Depends(get_current_user)) -> models.User:
-    if not current_user.is_active:
+async def get_current_active_user(current_db_user: user_model.User = Depends(get_current_user)) -> user_model.User:
+    if not current_db_user.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
-    return current_user
+    return current_db_user
 
-async def get_current_admin_user(current_user: models.User = Depends(get_current_active_user)) -> models.User:
-    if not current_user.is_admin:
+async def get_current_admin_user(current_db_user: user_model.User = Depends(get_current_active_user)) -> user_model.User:
+    if not current_db_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="The user doesn't have enough privileges"
         )
-    return current_user
+    return current_db_user

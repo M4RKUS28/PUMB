@@ -2,8 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 
-from .. import models, schemas, auth
-from ..database import get_db
+from ..schemas import user as user_schemas # For Pydantic models
+from ..models import db_user as user_model   # For SQLAlchemy model
+from ..utils import auth
+from ..db.database import get_db
 
 router = APIRouter(
     prefix="/users",
@@ -11,7 +13,7 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-@router.get("/", response_model=List[schemas.User], dependencies=[Depends(auth.get_current_admin_user)])
+@router.get("/", response_model=List[user_schemas.User], dependencies=[Depends(auth.get_current_admin_user)])
 async def read_users(
     skip: int = 0,
     limit: int = 100,
@@ -20,14 +22,14 @@ async def read_users(
     """
     Retrieve all users. Only accessible by admin users.
     """
-    users = db.query(models.User).offset(skip).limit(limit).all()
+    users = db.query(user_model.User).offset(skip).limit(limit).all()
     return users
 
-@router.get("/{user_id}", response_model=schemas.User)
+@router.get("/{user_id}", response_model=user_schemas.User)
 async def read_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_active_user)
+    current_user: user_model.User = Depends(auth.get_current_active_user)
 ):
     """
     Retrieve a specific user by ID.
@@ -36,24 +38,24 @@ async def read_user(
     if not current_user.is_admin and current_user.id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this user")
     
-    user = db.query(models.User).filter(models.User.id == user_id).first()
+    user = db.query(user_model.User).filter(user_model.User.id == user_id).first()
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
 
-@router.put("/{user_id}", response_model=schemas.User)
+@router.put("/{user_id}", response_model=user_schemas.User)
 async def update_user(
     user_id: int,
-    user_update: schemas.UserUpdate,
+    user_update: user_schemas.UserUpdate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_active_user)
+    current_user: user_model.User = Depends(auth.get_current_active_user)
 ):
     """
     Update a user's details.
     Admin users can update any user. Regular users can only update their own profile.
     Admin status can only be changed by other admins.
     """
-    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+    db_user = db.query(user_model.User).filter(user_model.User.id == user_id).first()
     if db_user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
@@ -65,13 +67,13 @@ async def update_user(
 
 
     if "username" in update_data:
-        existing_user = db.query(models.User).filter(models.User.username == update_data["username"]).first()
+        existing_user = db.query(user_model.User).filter(user_model.User.username == update_data["username"]).first()
         if existing_user and existing_user.id != user_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already registered")
         db_user.username = update_data["username"]
     
     if "email" in update_data:
-        existing_user = db.query(models.User).filter(models.User.email == update_data["email"]).first()
+        existing_user = db.query(user_model.User).filter(user_model.User.email == update_data["email"]).first()
         if existing_user and existing_user.id != user_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
         db_user.email = update_data["email"]
@@ -88,7 +90,7 @@ async def update_user(
     if "is_admin" in update_data and current_user.is_admin:
         # Prevent admin from accidentally removing their own admin status if they are the only admin
         if db_user.id == current_user.id and not update_data["is_admin"]:
-             admin_count = db.query(models.User).filter(models.User.is_admin == True).count()
+             admin_count = db.query(user_model.User).filter(user_model.User.is_admin == True).count()
              if admin_count <= 1:
                  raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove the last admin's privileges")
         db_user.is_admin = update_data["is_admin"]
@@ -100,17 +102,17 @@ async def update_user(
     return db_user
 
 
-@router.delete("/{user_id}", response_model=schemas.User, dependencies=[Depends(auth.get_current_admin_user)])
+@router.delete("/{user_id}", response_model=user_schemas.User, dependencies=[Depends(auth.get_current_admin_user)])
 async def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_admin_user) # Ensure admin is deleting
+    current_user: user_model.User = Depends(auth.get_current_admin_user) # Ensure admin is deleting
 ):
     """
     Delete a user. Only accessible by admin users.
     Admins cannot delete themselves.
     """
-    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+    db_user = db.query(user_model.User).filter(user_model.User.id == user_id).first()
     if db_user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 

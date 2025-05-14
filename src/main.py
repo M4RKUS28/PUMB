@@ -4,15 +4,18 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
 
-from . import models, schemas, auth
-from .database import engine, get_db
+from .schemas import user as user_schema
+from .models import db_user as user_model
+from .schemas import token as token_schema
+
+from .utils import auth
+from .db.database import engine, get_db
 from .routers import users # Your existing users router
 
 # Create database tables
-models.Base.metadata.create_all(bind=engine)
+user_model.Base.metadata.create_all(bind=engine)
 
 # Create the main app instance
-# You can set openapi_prefix when creating the FastAPI app. This is primarily for how the API docs (e.g., /docs) are generated when your app is served behind a proxy that adds a prefix.
 app = FastAPI(title="User Management API", root_path="/api")
 
 # CORS Configuration (remains the same)
@@ -38,7 +41,7 @@ api_router.include_router(users.router)
 
 
 # Define /token and /register directly under api_router if you want them prefixed
-@api_router.post("/token", response_model=schemas.Token, tags=["authentication"])
+@api_router.post("/token", response_model=token_schema.Token, tags=["authentication"])
 async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
@@ -70,33 +73,36 @@ async def login_for_access_token(
         "is_admin": user.is_admin
     }
 
-@api_router.post("/register", response_model=schemas.User, status_code=status.HTTP_201_CREATED, tags=["authentication"])
-async def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    db_user_by_username = db.query(models.User).filter(models.User.username == user.username).first()
+@api_router.post("/register", response_model=user_schema.User, status_code=status.HTTP_201_CREATED, tags=["Authentication"]) # Corrected Tag
+async def register_user(user_data: user_schema.UserCreate, db: Session = Depends(get_db)):
+    # Check if username from incoming data (user_data.username) already exists in the DB
+    db_user_by_username = db.query(user_model.User).filter(user_model.User.username == user_data.username).first()
     if db_user_by_username:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already registered")
     
-    db_user_by_email = db.query(models.User).filter(models.User.email == user.email).first()
+    # Check if email from incoming data (user_data.email) already exists in the DB
+    db_user_by_email = db.query(user_model.User).filter(user_model.User.email == user_data.email).first()
     if db_user_by_email:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
     
-    hashed_password = auth.get_password_hash(user.password)
+    hashed_password = auth.get_password_hash(user_data.password)
     
-    new_user = models.User(
-        username=user.username,
-        email=user.email,
+    # Create an instance of the SQLAlchemy model (user_model.User)
+    new_db_user = user_model.User( # Renamed from new_user for clarity
+        username=user_data.username,
+        email=user_data.email,
         hashed_password=hashed_password,
         is_admin=False # Ensure new users are NOT admins by default
     )
     
-    db.add(new_user)
+    db.add(new_db_user)
     db.commit()
-    db.refresh(new_user)
+    db.refresh(new_db_user)
     
-    return new_user
+    return new_db_user
 
-@api_router.get("/users/me", response_model=schemas.User, tags=["users"]) # Moved /users/me here
-async def read_users_me(current_user: models.User = Depends(auth.get_current_active_user)):
+@api_router.get("/users/me", response_model=user_schema.User, tags=["users"]) # Moved /users/me here
+async def read_users_me(current_user: user_model.User = Depends(auth.get_current_active_user)):
     return current_user
 
 
