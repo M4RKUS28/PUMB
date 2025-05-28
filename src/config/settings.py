@@ -7,16 +7,21 @@ logging.basicConfig(level=logging.INFO)
 
 load_dotenv()
 
+# This will be loaded dynamically.
+SETTINGS_RELOAD_INTERVAL_SECONDS = 60
+
+DEFAULT_SETTINGS = {
+    "REGISTER_ENDPOINT_ENABLED": "True",
+}
 
 # Configuration for the application
-# Password policy
-# These settings are used to enforce password complexity requirements
+# Password policy settings are now stored in the database.
 MIN_PASSWORD_LENGTH = 3
 REQUIRE_UPPERCASE = False
 REQUIRE_LOWERCASE = False
 REQUIRE_DIGIT = False
 REQUIRE_SPECIAL_CHAR = False
-SPECIAL_CHARACTERS_REGEX_PATTERN = r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?~`]"
+SPECIAL_CHARACTERS_REGEX_PATTERN = r"[!@#$%^&*()_+\\-=\\[\\]{};':\"\\\\|,.<>\\/?~`]"
 
 
 # JWT settings
