@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
@@ -6,122 +7,143 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
+from src.models.db_user import User as UserModel # Explicitly import the SQLAlchemy model class
+from src.schemas import token as token_schema # Pydantic schema
+from src.db.database import get_db
+from src.config.settings import settings # Use centralized settings
 
-# Import the SQLAlchemy User model module correctly
-from ..models import db_user as user_model # Use a consistent alias for the SQLAlchemy model module
-# Import Pydantic schemas (only TokenData is directly used here)
-from ..schemas import token as token_schema # Alias for Pydantic token schemas
-from ..db.database import get_db
-
-# Configuration
-from ..config.settings import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_MINUTES
+logger = logging.getLogger(__name__)
 
 # Password-Hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # OAuth2 with Password Flow
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token") # Relative URL for token endpoint
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/token")
 
-def verify_password(plain_password, hashed_password):
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verifies a plain password against a hashed password."""
     return pwd_context.verify(plain_password, hashed_password)
 
-def get_password_hash(password):
+def get_password_hash(password: str) -> str:
+    """Hashes a plain password."""
     return pwd_context.hash(password)
 
-def authenticate_user(db: Session, username: str, password: str) -> Optional[user_model.User]:
-    authenticated_db_user = db.query(user_model.User).filter(user_model.User.username == username).first()
-    if not authenticated_db_user:
+def authenticate_user(db: Session, username: str, password: str) -> Optional[UserModel]:
+    """
+    Authenticates a user by username and password.
+    Returns the UserModel instance if authentication is successful, otherwise None.
+    """
+    user: Optional[UserModel] = db.query(UserModel).filter(UserModel.username == username).first()
+    if not user:
+        logger.debug(f"Authentication failed: User '{username}' not found.")
         return None
-    if not verify_password(password, authenticated_db_user.hashed_password):
+    # When 'user' is an instance of UserModel, user.hashed_password is a string.
+    if not verify_password(password, user.hashed_password):
+        logger.debug(f"Authentication failed: Invalid password for user '{username}'.")
         return None
-    return authenticated_db_user # Return the SQLAlchemy user model instance
+    logger.info(f"User '{username}' authenticated successfully.")
+    return user
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Creates a new access token."""
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire, "is_refresh": False})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire, "type": "access", "sub": to_encode.get("sub")})
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
-def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Creates a new refresh token."""
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire, "is_refresh": True})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire, "type": "refresh", "sub": to_encode.get("sub")})
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> user_model.User:
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> UserModel:
+    """
+    Decodes the JWT token to get the current user (UserModel instance).
+    Raises HTTPException if the token is invalid or the user is not found.
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         username: Optional[str] = payload.get("sub")
-        user_id: Optional[int] = payload.get("user_id")
-        is_admin: bool = payload.get("is_admin", False)
-        is_refresh: bool = payload.get("is_refresh", False)
-        if username is None or user_id is None:
+        token_type: Optional[str] = payload.get("type")
+        if username is None or token_type != "access":
+            logger.warning(f"Invalid token: username missing or not an access token. Payload: {payload}")
             raise credentials_exception
-        if is_refresh: # Add check for refresh token
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token type, refresh token cannot be used here",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        # token_data = token.TokenData(username=username, user_id=user_id, is_admin=is_admin)
-    except JWTError:
-        raise credentials_exception
-    
-    user = db.query(user_model.User).filter(user_model.User.id == user_id).first()
+    except JWTError as e:
+        logger.error(f"JWTError while decoding token: {e}", exc_info=True)
+        raise credentials_exception from e
+
+    user: Optional[UserModel] = db.query(UserModel).filter(UserModel.username == username).first()
     if user is None:
+        logger.warning(f"User '{username}' from token not found in database.")
         raise credentials_exception
     return user
 
-async def get_current_active_user(current_db_user: user_model.User = Depends(get_current_user)) -> user_model.User:
-    if not current_db_user.is_active:
+async def get_current_active_user(current_user: UserModel = Depends(get_current_user)) -> UserModel:
+    """
+    Checks if the current user (UserModel instance) is active.
+    Raises HTTPException if the user is inactive.
+    """
+    # current_user is an instance of UserModel. Its 'is_active' attribute is a Python bool.
+    if not current_user.is_active:
+        logger.warning(f"Inactive user attempt: User ID {current_user.id}, Username '{current_user.username}'.")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
-    return current_db_user
+    return current_user
 
-async def get_current_admin_user(current_db_user: user_model.User = Depends(get_current_active_user)) -> user_model.User:
-    if not current_db_user.is_admin:
+async def get_current_admin_user(current_user: UserModel = Depends(get_current_active_user)) -> UserModel:
+    """
+    Checks if the current active user (UserModel instance) is an admin.
+    Raises HTTPException if the user is not an admin.
+    """
+    # current_user is an instance of UserModel. Its 'is_admin' attribute is a Python bool.
+    if not current_user.is_admin:
+        logger.warning(f"Admin access denied: User ID {current_user.id}, Username '{current_user.username}' is not an admin.")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="The user doesn't have enough privileges"
+            detail="The user doesn\'t have enough privileges"
         )
-    return current_db_user
+    return current_user
 
-async def get_current_user_from_refresh_token(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> user_model.User:
+async def get_current_user_from_refresh_token(token: str, db: Session) -> UserModel:
+    """
+    Decodes a refresh token to get the user (UserModel instance).
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials from refresh token",
-        headers={"WWW-Authenticate": "Bearer"},
+        detail="Could not validate refresh token",
+        headers={"WWW-Authenticate": "Bearer refresh"},
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         username: Optional[str] = payload.get("sub")
-        user_id: Optional[int] = payload.get("user_id")
-        # is_admin: bool = payload.get("is_admin", False) # Not needed for refresh token validation itself
-        is_refresh: bool = payload.get("is_refresh", False)
-        if username is None or user_id is None:
+        token_type: Optional[str] = payload.get("type")
+        if username is None or token_type != "refresh":
+            logger.warning(f"Invalid refresh token: username missing or not a refresh token. Payload: {payload}")
             raise credentials_exception
-        if not is_refresh: # Ensure it IS a refresh token
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token type, not a refresh token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-    except JWTError:
-        raise credentials_exception
-    
-    user = db.query(user_model.User).filter(user_model.User.id == user_id).first()
+    except JWTError as e:
+        logger.error(f"JWTError while decoding refresh token: {e}", exc_info=True)
+        raise credentials_exception from e
+
+    user: Optional[UserModel] = db.query(UserModel).filter(UserModel.username == username).first()
     if user is None:
+        logger.warning(f"User '{username}' from refresh token not found in database.")
         raise credentials_exception
+    # user is an instance of UserModel. Its 'is_active' attribute is a Python bool.
+    if not user.is_active:
+        logger.warning(f"Inactive user attempt with refresh token: User ID {user.id}, Username '{user.username}'.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
     return user

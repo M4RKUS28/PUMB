@@ -1,24 +1,34 @@
-from fastapi import FastAPI, Depends, APIRouter
+import logging
+from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.sessions import SessionMiddleware # Für OAuth Google Flow
-import secrets # Für Session Secret Key Fallback
+from starlette.middleware.sessions import SessionMiddleware
+import secrets
 
-from .models.db_user import User as UserModel
-from .schemas import user as user_schema
-from .utils import auth
-from .routers import users, auth_router
 from .core.lifespan import lifespan
-from .config import settings # Für Konfigurationen
+from .config.settings import settings # Use the centralized settings
+from .routers import users, auth_router
 
 
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Create the main app instance with the lifespan manager
-app = FastAPI(title="User Management API", root_path="/api", lifespan=lifespan)
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    openapi_url=f"{settings.API_V1_STR}/openapi.json", # Standard OpenAPI path
+    lifespan=lifespan,
+    debug=settings.DEBUG
+)
 
 
-_session_secret_key = getattr(settings, 'SESSION_SECRET_KEY', None)
+# Session Middleware for OAuth Google Flow
+# Ensure SESSION_SECRET_KEY is set, otherwise generate a temporary one (unsafe for production)
+_session_secret_key = settings.SESSION_SECRET_KEY
 if not _session_secret_key:
-    print("WARNUNG: settings.SESSION_SECRET_KEY nicht gefunden. Verwende einen temporären Schlüssel. Dies ist unsicher für die Produktion.")
+    logger.warning(
+        "settings.SESSION_SECRET_KEY not found. \
+        Using a temporary key. This is UNSAFE for production."
+    )
     _session_secret_key = secrets.token_hex(32)
 
 app.add_middleware(
@@ -28,43 +38,32 @@ app.add_middleware(
 
 
 # CORS Configuration
-origins = [
-    "http://localhost:3000",
-    "http://localhost:8000",
-]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+if settings.CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[str(origin) for origin in settings.CORS_ORIGINS], # Ensure origins are strings
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    logger.warning("CORS_ORIGINS is not set. CORS will not be configured.")
 
-# Create a root router for the /api prefix
-api_router = APIRouter()
+
+# Create a root router for the API prefix from settings
+api_router = APIRouter(prefix=settings.API_V1_STR)
 
 # Include your existing routers under this api_router
 api_router.include_router(users.router)
 api_router.include_router(auth_router.router) # Add the auth router
 
-#...
-
-
-@api_router.get("/users/me", response_model=user_schema.User, tags=["users"])
-async def read_users_me(current_user: UserModel = Depends(auth.get_current_active_user)):
-    """
-    Get the current logged-in user's profile.
-    This endpoint is accessible to all authenticated users.
-    """
-    return current_user
-
 # Include the api_router in the main app
 app.include_router(api_router)
 
-@app.get("/")
-async def root():
+# Root endpoint for basic health check or API info
+@app.get("/", tags=["Root"])
+async def read_root():
     """
-    Root endpoint that provides a welcome message.
-    This can be used to verify that the API is running.
+    Root endpoint providing basic API information.
     """
-    return {"message": "Welcome to the User Management API. See /docs for API documentation."}
+    return {"message": f"Welcome to {settings.PROJECT_NAME}", "docs_url": "/docs", "redoc_url": "/redoc"}
