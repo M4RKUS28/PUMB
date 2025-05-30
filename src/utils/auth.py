@@ -14,7 +14,7 @@ from ..schemas import token as token_schema # Alias for Pydantic token schemas
 from ..db.database import get_db
 
 # Configuration
-from ..config.settings import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from ..config.settings import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_MINUTES
 
 # Password-Hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -42,7 +42,17 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "is_refresh": False})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire, "is_refresh": True})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -54,11 +64,18 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        user_id: int = payload.get("user_id")
+        username: Optional[str] = payload.get("sub")
+        user_id: Optional[int] = payload.get("user_id")
         is_admin: bool = payload.get("is_admin", False)
+        is_refresh: bool = payload.get("is_refresh", False)
         if username is None or user_id is None:
             raise credentials_exception
+        if is_refresh: # Add check for refresh token
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token type, refresh token cannot be used here",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         # token_data = token.TokenData(username=username, user_id=user_id, is_admin=is_admin)
     except JWTError:
         raise credentials_exception
@@ -80,3 +97,31 @@ async def get_current_admin_user(current_db_user: user_model.User = Depends(get_
             detail="The user doesn't have enough privileges"
         )
     return current_db_user
+
+async def get_current_user_from_refresh_token(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> user_model.User:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials from refresh token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: Optional[str] = payload.get("sub")
+        user_id: Optional[int] = payload.get("user_id")
+        # is_admin: bool = payload.get("is_admin", False) # Not needed for refresh token validation itself
+        is_refresh: bool = payload.get("is_refresh", False)
+        if username is None or user_id is None:
+            raise credentials_exception
+        if not is_refresh: # Ensure it IS a refresh token
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token type, not a refresh token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    except JWTError:
+        raise credentials_exception
+    
+    user = db.query(user_model.User).filter(user_model.User.id == user_id).first()
+    if user is None:
+        raise credentials_exception
+    return user

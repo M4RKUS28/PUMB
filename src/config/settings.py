@@ -12,6 +12,7 @@ SETTINGS_RELOAD_INTERVAL_SECONDS = 60
 
 DEFAULT_SETTINGS = {
     "REGISTER_ENDPOINT_ENABLED": "True",
+    "GOOGLE_OAUTH20_ENABLED": "True",
 }
 
 # Configuration for the application
@@ -28,7 +29,15 @@ SPECIAL_CHARACTERS_REGEX_PATTERN = r"[!@#$%^&*()_+\\-=\\[\\]{};':\"\\\\|,.<>\\/?
 SECRET_KEY = os.getenv("SECRET_KEY", "a_very_secret_key_please_change_me")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "2440"))
+REFRESH_TOKEN_EXPIRE_MINUTES = int(os.getenv("REFRESH_TOKEN_EXPIRE_MINUTES", "10080")) # 7 days
 
+
+# Google OAuth settings
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "https://www.nexora-ai.de/api/auth/google/callback")
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "https://www.nexora-ai.de")
+SESSION_SECRET_KEY: str = os.getenv("SESSION_SECRET_KEY",  "another-very-secret-key-for-session")
 
 # Database settings
 DB_USER = os.getenv("DB_USER", "your_db_user")

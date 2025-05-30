@@ -1,21 +1,31 @@
 from fastapi import FastAPI, Depends, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware # Für OAuth Google Flow
+import secrets # Für Session Secret Key Fallback
 
-# Corrected model imports
 from .models.db_user import User as UserModel
-
 from .schemas import user as user_schema
-
 from .utils import auth
-
-# Import routers
 from .routers import users, auth_router
-
-# Import lifespan manager
 from .core.lifespan import lifespan
+from .config import settings # Für Konfigurationen
+
+
 
 # Create the main app instance with the lifespan manager
 app = FastAPI(title="User Management API", root_path="/api", lifespan=lifespan)
+
+
+_session_secret_key = getattr(settings, 'SESSION_SECRET_KEY', None)
+if not _session_secret_key:
+    print("WARNUNG: settings.SESSION_SECRET_KEY nicht gefunden. Verwende einen temporären Schlüssel. Dies ist unsicher für die Produktion.")
+    _session_secret_key = secrets.token_hex(32)
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=_session_secret_key
+)
+
 
 # CORS Configuration
 origins = [
@@ -36,6 +46,9 @@ api_router = APIRouter()
 # Include your existing routers under this api_router
 api_router.include_router(users.router)
 api_router.include_router(auth_router.router) # Add the auth router
+
+#...
+
 
 @api_router.get("/users/me", response_model=user_schema.User, tags=["users"])
 async def read_users_me(current_user: UserModel = Depends(auth.get_current_active_user)):
