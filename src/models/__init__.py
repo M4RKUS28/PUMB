@@ -1,4 +1,2 @@
-from .db_user import User
+from .user_models import DBUser
 from .db_server_setting import ServerSetting
-
-__all__ = ["User", "ServerSetting"]

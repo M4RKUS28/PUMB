@@ -1,13 +1,16 @@
+"""
+PUMP - A FastAPI-based project structure with centralized settings and modular routers.
+"""
 import logging
-from fastapi import FastAPI, APIRouter
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.sessions import SessionMiddleware
 import secrets
 
-from .core.lifespan import lifespan
-from .config.settings import settings # Use the centralized settings
-from .routers import users, auth_router
+from fastapi import APIRouter, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
+from .config.settings import settings  # Use the centralized settings
+from .core.lifespan import lifespan
+from .routers import auth_router, user_router
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -54,7 +57,7 @@ else:
 api_router = APIRouter(prefix=settings.API_V1_STR)
 
 # Include your existing routers under this api_router
-api_router.include_router(users.router)
+api_router.include_router(user_router.router)
 api_router.include_router(auth_router.router) # Add the auth router
 
 # Include the api_router in the main app

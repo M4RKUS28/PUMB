@@ -1,23 +1,46 @@
+"""
+Schemas for user management, including creation and updates with password complexity validation.
+"""
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
-# Token Schemas (remain the same)
-class Token(BaseModel):
+
+class RefreshToken(BaseModel):
+    """Schema for refresh token data."""
+    refresh_token: str
+    expires_in: int
+
+class AccessToken(BaseModel):
+    """Schema for access token data."""
     access_token: str
-    refresh_token: str # Added refresh_token
-    token_type: str
+    token_type: str = "bearer"
+    expires_in: int
+
+class Token(BaseModel):
+    """Schema for access and refresh tokens."""
+    access: AccessToken
+    refresh: RefreshToken
     user_id: int
     username: str
-    #email: str
+    email: str
     is_admin: bool
 
-class TokenData(BaseModel):
-    username: Optional[str] = None
-    #email: Optional[str] = None
-    user_id: Optional[int] = None
-    is_admin: Optional[bool] = None
-    is_refresh: Optional[bool] = False # Added to distinguish refresh tokens
+class TokenRefreshRequest(BaseModel):
+    """Schema for refresh token request."""
+    refresh_token: str
 
 class LoginForm(BaseModel):
-    username: str
+    """Schema for user login form data."""
+    username: Optional[str] = None
+    email: Optional[str] = None
     password: str
+
+    @model_validator(mode="after")
+    @classmethod
+    def check_username_or_email(cls, values):
+        """Ensure either username or email is provided, but not both."""
+        if not (values.username or values.email):
+            raise ValueError("Either 'username' or 'email' must be provided.")
+        if values.username and values.email:
+            raise ValueError("Provide only one of 'username' or 'email', not both.")
+        return values

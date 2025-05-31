@@ -1,7 +1,8 @@
 from sqlalchemy import Column, Integer, String, Text
-from ..db.database import Base
+from db.database import Base
 
 class ServerSetting(Base):
+    """SQLAlchemy model for the Server Settings table."""
     __tablename__ = "server_settings"
 
     id = Column(Integer, primary_key=True, index=True)

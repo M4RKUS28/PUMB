@@ -1,11 +1,21 @@
+"""aa"""
 import logging
-from typing import Any  # Import Any
+from pathlib import Path
+from typing import Any, Set  # Modified import
+
+from pydantic import AnyHttpUrl, field_validator  # For URL validation
 from pydantic_settings import BaseSettings
-from pydantic import EmailStr, AnyHttpUrl, field_validator  # For URL validation
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+DEFAULT_SETTINGS = {
+    "REGISTER_ENDPOINT_ENABLED": "True",
+    "GOOGLE_OAUTH20_ENABLED": "True"
+}
+
 
 
 class Settings(BaseSettings):
@@ -13,6 +23,7 @@ class Settings(BaseSettings):
     Application settings.
     Values are loaded from environment variables and/or a .env file.
     """
+
 
     # Core FastAPI settings
     PROJECT_NAME: str = "User Management API"
@@ -67,8 +78,18 @@ class Settings(BaseSettings):
     REQUIRE_SPECIAL_CHAR: bool = True
     SPECIAL_CHARACTERS_REGEX_PATTERN: str = r"[!@#$%^&*()_+\\-=\\[\\]{};':\"\\\\|,.<>\\/?~`]"
 
+    # Configure media directory
+    MEDIA_DIR: Path = Path("media/profile_pictures")
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Allowed image extensions and max file size
+    ALLOWED_EXTENSIONS: Set[str] = {".jpg", ".jpeg", ".png", ".gif", ".webp"}  # Corrected type hint
+    MAX_FILE_SIZE: int = 5 * 1024 * 1024  # 5MB
+
     @field_validator('SQLALCHEMY_DATABASE_URL', mode='before')
+    @classmethod
     def assemble_db_connection(cls, v: str | None, values) -> Any:
+        """Validates and constructs the SQLAlchemy database URL."""
         if isinstance(v, str):
             return v
         # Ensure values.data is used to access other field values
@@ -82,22 +103,23 @@ class Settings(BaseSettings):
         return None  # Return None if essential DB components are missing
 
     class Config:
+        """Pydantic configuration."""
         env_file = ".env"  # Load .env file if present
         env_file_encoding = 'utf-8'
         case_sensitive = True  # Environment variable names are case-sensitive
-
 
 # Instantiate settings
 settings = Settings()
 
 # Log essential settings on startup (be careful with sensitive data in production logs)
-logger.info(f"Project Name: {settings.PROJECT_NAME}")
-logger.info(f"API Prefix: {settings.API_V1_STR}")
-logger.info(f"Debug Mode: {settings.DEBUG}")
+logger.info("Project Name: %s", settings.PROJECT_NAME)
+logger.info("API Prefix: %s", settings.API_V1_STR)
+logger.info("Debug Mode: %s", settings.DEBUG)
 # Avoid logging credentials by splitting the URL
 if settings.SQLALCHEMY_DATABASE_URL:
     db_url_parts = settings.SQLALCHEMY_DATABASE_URL.split('@')
-    logger.info(f"Database URL (host/db): {db_url_parts[1] if len(db_url_parts) > 1 else 'Not fully configured'}")
+    logger.info("Database URL (host/db): %s", db_url_parts[1] if len(db_url_parts) > 1 else 'Not fully configured')
 else:
     logger.info("Database URL: Not set or not all components provided")
-logger.info(f"CORS Origins: {settings.CORS_ORIGINS}")
+logger.info("CORS Origins: %s", settings.CORS_ORIGINS)
+

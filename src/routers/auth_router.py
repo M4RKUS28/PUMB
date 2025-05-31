@@ -1,32 +1,28 @@
-
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.responses import RedirectResponse
-from fastapi.security import OAuth2PasswordRequestForm # Ensure this import is present
-from sqlalchemy.orm import Session
-from datetime import timedelta
+import base64  # Für Google OAuth Bild-Download
 import secrets
 import uuid
-import requests # Für Google OAuth Bild-Download
-import base64   # Für Google OAuth Bild-Download
+from datetime import timedelta
 
+import requests  # Für Google OAuth Bild-Download
 from authlib.integrations.starlette_client import OAuth, OAuthError
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
+from fastapi.security import \
+    OAuth2PasswordRequestForm  # Ensure this import is present
+from sqlalchemy.orm import Session
 
-from ..config.settings_loader import get_setting
-from ..config import settings # Import settings for Google OAuth
-from ..db.database import get_db
-from ..models.db_user import User as user_model
-from ..schemas import token as token_schema
-from ..schemas import user as user_schema
-from ..utils import auth
-
-from ..utils.auth import get_current_user_from_refresh_token
-from ..utils.auth import get_current_active_user
-from ..utils.auth import get_password_hash, authenticate_user, create_access_token, create_refresh_token
-from ..config.settings import ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_MINUTES, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+from config.settings import settings
+from config.settings_loader import get_setting
+from db.database import get_db
+from models.user_models import DBUser as user_model
+from schemas import token as token_schema
+from schemas import user_schemas as user_schema
+from utils import auth
 
 router = APIRouter(
-    prefix="/auth", # Add prefix for consistency
-    tags=["Authentication"]
+    prefix="/auth",
+    tags=["Authentication"],
+    responses={404: {"description": "Not found"}},
 )
 
 # Initialize OAuth
@@ -60,12 +56,12 @@ async def login_for_access_token(
             detail="Inactive user"
         )
     
-    access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES) # Use settings object
     access_token = auth.create_access_token(
         data={"sub": user.username, "user_id": user.id, "is_admin": user.is_admin},
         expires_delta=access_token_expires,
     )
-    refresh_token_expires = timedelta(minutes=auth.REFRESH_TOKEN_EXPIRE_MINUTES)
+    refresh_token_expires = timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES) # Use settings object
     refresh_token = auth.create_refresh_token(
         data={"sub": user.username, "user_id": user.id, "is_admin": user.is_admin}, # Add is_admin here too
         expires_delta=refresh_token_expires,
@@ -133,6 +129,9 @@ async def login_google(request: Request):
 
 @router.get("/google/callback")
 async def google_callback(request: Request, db: Session = Depends(get_db)):
+    """
+    Callback endpoint for Google OAuth2.0 authentication.
+    """
     print("Google callback received at /api/auth/google/callback")
     try:
         token_oauth = await oauth.google.authorize_access_token(request)
@@ -237,7 +236,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     frontend_callback_path = "/auth/google/callback" # Dies ist der Pfad im Frontend
     
     redirect_url_with_fragment = (
-        f"{frontend_base_url.rstrip('/')}{frontend_callback_path}"
+        f"{str(frontend_base_url).rstrip('/')}{frontend_callback_path}"
         f"#access_token={access_token}"
         f"&token_type=bearer"
         f"&refresh_token={refresh_token}" # Refresh-Token hinzufügen
@@ -259,13 +258,13 @@ async def refresh_access_token(
     """
     Refresh an access token using a refresh token.
     """
-    if not current_user.is_active:
+    if not current_user.is_active: # type: ignore
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Inactive user"
         )
 
-    access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     new_access_token = auth.create_access_token(
         data={"sub": current_user.username, "user_id": current_user.id, "is_admin": current_user.is_admin},
         expires_delta=access_token_expires
@@ -277,7 +276,7 @@ async def refresh_access_token(
     # For this example, we will return the *new* access token and the *original* refresh token is expected to be re-used by the client
     # until it expires. Or, if you want to issue a new refresh token each time:
     
-    refresh_token_expires = timedelta(minutes=auth.REFRESH_TOKEN_EXPIRE_MINUTES)
+    refresh_token_expires = timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES)
     new_refresh_token = auth.create_refresh_token(
         data={"sub": current_user.username, "user_id": current_user.id, "is_admin": current_user.is_admin},
         expires_delta=refresh_token_expires

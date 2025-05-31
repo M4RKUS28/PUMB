@@ -11,3 +11,6 @@ python-dotenv
 email_validator
 python-multipart
 Authlib
+requests # Added for making HTTP requests, e.g., for Google OAuth profile image download
+pydantic_settings
+aiofiles

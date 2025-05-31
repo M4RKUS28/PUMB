@@ -1,12 +1,11 @@
-\
 import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
-from src.db.database import SessionLocal, engine, Base
-from src.config.settings_loader import load_settings_from_db, initialize_db_with_default_settings
-from src.config.settings import settings # Use centralized settings
+from db.database import SessionLocal, engine, Base
+from config.settings_loader import load_settings_from_db, initialize_db_with_default_settings
+from config.settings import settings # Use centralized settings
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,7 @@ async def periodic_settings_reload():
             await asyncio.to_thread(load_settings_from_db, db_session)
             logger.info("Settings reloaded from database successfully.")
         except Exception as e: # Keep Exception for now, can be refined if specific exceptions are known
-            logger.error(f"Error reloading settings from database: {e}", exc_info=True)
+            logger.error("Error reloading settings from database: %s", e, exc_info=True)
         finally:
             db_session.close()
 
@@ -37,8 +36,8 @@ async def lifespan(app: FastAPI): # app argument is used by FastAPI for lifespan
     try:
         await asyncio.to_thread(Base.metadata.create_all, bind=engine)
         logger.info("Database tables checked/created.")
-    except Exception as e:
-        logger.error(f"Error creating database tables: {e}", exc_info=True)
+    except Exception as e: #sqlalchemy.exc.OperationalError, sqlalchemy.exc.ProgrammingError as e:
+        logger.error("Error creating database tables: %s", e, exc_info=True)
 
     logger.info("Initializing/loading settings from database...")
     db_session_startup = SessionLocal()
@@ -47,12 +46,12 @@ async def lifespan(app: FastAPI): # app argument is used by FastAPI for lifespan
         await asyncio.to_thread(load_settings_from_db, db_session_startup)
         logger.info("Settings initialized/loaded from database.")
     except Exception as e:
-        logger.error(f"Error initializing/loading settings from database: {e}", exc_info=True)
+        logger.error("Error initializing/loading settings from database: %s", e, exc_info=True)
     finally:
         db_session_startup.close()
 
     if settings.SETTINGS_RELOAD_INTERVAL_SECONDS > 0:
-        logger.info(f"Starting periodic settings reload task (interval: {settings.SETTINGS_RELOAD_INTERVAL_SECONDS}s).")
+        logger.info("Starting periodic settings reload task (interval: %ss).", settings.SETTINGS_RELOAD_INTERVAL_SECONDS)
         # Store the task on app.state for potential access during shutdown
         app.state.settings_reload_task = asyncio.create_task(periodic_settings_reload())
     else:
@@ -69,7 +68,7 @@ async def lifespan(app: FastAPI): # app argument is used by FastAPI for lifespan
             await app.state.settings_reload_task
         except asyncio.CancelledError:
             logger.info("Periodic settings reload task cancelled successfully.")
-        except Exception as e:
-            logger.error(f"Error during settings_reload_task cancellation: {e}", exc_info=True)
+        except Exception as e:  # Consider narrowing this down to specific expected exceptions
+            logger.error("Error during settings_reload_task cancellation: %s", e, exc_info=True)
 
     logger.info("Application shutdown complete.")

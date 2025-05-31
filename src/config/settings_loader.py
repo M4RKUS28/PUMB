@@ -1,12 +1,15 @@
+"""Loads settings from the database and provides access to them."""
+from typing import (Any, Dict)
 from sqlalchemy.orm import Session
-from typing import Dict, Any # Changed from Dict to Any for db_settings_cache initially
-from ..models.db_server_setting import ServerSetting # Adjusted path assuming models.db_server_setting
+
+from models.db_server_setting import ServerSetting
 
 # Define a dictionary to hold the loaded settings
 db_settings_cache: Dict[str, Any] = {} # Explicitly type the cache
 
 # Define default values in case they are not in the DB yet
 from .settings import DEFAULT_SETTINGS
+
 
 # Helper function to infer type from a string and parse another string accordingly
 def _infer_and_parse_value(value_to_parse_str: str, type_reference_str: str):

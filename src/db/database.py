@@ -2,7 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-from ..config.settings import settings  # Use the centralized settings
+from config.settings import settings  # Use the centralized settings
 
 # Ensure SQLALCHEMY_DATABASE_URL is available
 if not settings.SQLALCHEMY_DATABASE_URL:
